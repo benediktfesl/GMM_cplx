@@ -35,6 +35,17 @@ The following covariance structures are supported:
 - 'toeplitz' (Toeplitz covariance matrix for each GMM component)
 - 'block-toeplitz' (Block-Toeplitz covariance matrix with Toeplitz blocks for each GMM component, use keyword 'blocks' in 'fit')
 
+## Toeplitz Covariance Matrices
+The implementation of the EM algorithm to enforce a GMM with (block-)Toeplitz-structured covariances is based on the paper 
+> T. Barton and D. Fuhrmann, “Covariance Estimation for Multidimensional Data using the EM Algorithm,” in *Proc. of 27th Asilomar Conf. on Signals, Syst. and Comput.*, 1993, pp. 203–207.
+
+Further reading can be found in
+> B. Fesl, M. Joham, S. Hu, M. Koller, N. Turan, and W. Utschick, “Channel Estimation based on Gaussian Mixture Models with Structured Covariances,” in *56th Asilomar Conf. Signals, Syst., Comput.*, 2022, pp. 533–537.
+
+## Circulant Covariance Matrices
+Since a (block-)circulant covariance matrix is diagonalized by the (two-dimensional) discrete Fourier transform matrix (DFT), we simply transform the training data to the Fourier domain and fit a diagonal covariance matrix as described in 
+> M. Koller, B. Fesl, N. Turan, and W. Utschick, “An Asymptotically MSE-Optimal Estimator Based on Gaussian Mixture Models,” *IEEE Trans. Signal Process.*, vol. 70, pp. 4109–4123, 2022.
+
 ## Research work
 The results of the following works are (in parts) based on the complex-valued implementation:
 - M. Koller, B. Fesl, N. Turan, and W. Utschick, “An Asymptotically MSE-Optimal Estimator Based on Gaussian Mixture Models,” *IEEE Trans. Signal Process.*, vol. 70, pp. 4109–4123, 2022.
@@ -47,7 +58,6 @@ The results of the following works are (in parts) based on the complex-valued im
 - N. Turan, B. Fesl, and W. Utschick, "Enhanced Low-Complexity FDD System Feedback with Variable Bit Lengths via Generative Modeling," in *57th Asilomar Conf. Signals, Syst., Comput.*, 2023.
 
 ## Original License
-
 The original code from https://scikit-learn.org/stable/modules/mixture.html is covered by the following license:
 
 > BSD 3-Clause License
