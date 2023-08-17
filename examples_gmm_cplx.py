@@ -5,7 +5,7 @@ import utils as ut
 
 if __name__ == '__main__':
     """
-    Full covariance matrices, no observation matrix.
+    Test script for the complex-valued GMM implementation.
     """
     rng = np.random.default_rng(1235428719812346)
 
