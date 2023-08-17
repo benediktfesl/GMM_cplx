@@ -13,7 +13,7 @@ if __name__ == '__main__':
     n_val = 100
     n_dim = 32
     # covariance types: {'full', 'diag', 'spherical', (block-)circulant, (block-)toeplitz}
-    covariance_type = 'spherical'
+    covariance_type = 'full'
     # Dimensions of matrix blocks (only necessary for block-circulant and block-toeplitz), e.g., 4 blocks of size 8x8
     blocks = (4, 8)
     # Enforce zero mean of all GMM components
@@ -58,3 +58,4 @@ if __name__ == '__main__':
     samples, comps = gm_full.sample(n_samples=100)
     # check generated samples by computing max responsibility
     proba_max_samples = gm_full.predict_cplx(samples)
+    stop = 0

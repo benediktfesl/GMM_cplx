@@ -332,7 +332,7 @@ class GaussianMixtureCplx:
             )
         # Since we are using the precision of the Cholesky decomposition,
         # `- log_det_precision` becomes `+ 2 * log_det_precision_chol`
-        return -(n_features * np.log(np.pi) + log_prob) + 2*log_det
+        return -(n_features * np.log(np.pi) + np.real(log_prob)) + 2*log_det
 
     def fit_cplx(self, X, y=None):
         """Estimate model parameters with the EM algorithm.
@@ -625,7 +625,7 @@ class GaussianMixtureCplx:
             The covariance matrix of the current components.
             The shape depends of the covariance_type.
         """
-        nk = resp.sum(axis=0) + 10 * np.finfo(resp.dtype).eps
+        nk = np.real(resp).sum(axis=0) + 10 * np.finfo(resp.dtype).eps
         means = np.dot(resp.T, X) / nk[:, np.newaxis]
         if self.params['zero_mean']:
             means = np.zeros_like(means)

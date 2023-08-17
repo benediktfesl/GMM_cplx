@@ -36,8 +36,9 @@ def multivariate_normal_cplx(mean, covariance, n_samples, covariance_type):
         cov_sqrt = np.sqrt(covariance) * np.eye(mean.shape[0])
     else:
         cov_sqrt = np.linalg.cholesky(covariance)
-    h = np.squeeze(cov_sqrt @ crandn(n_samples, covariance.shape[0], 1))
-    h += np.expand_dims(mean, 0)
+    h = np.squeeze(cov_sqrt @ crandn(n_samples, cov_sqrt.shape[0], 1))
+    if n_samples > 1:
+        h += np.expand_dims(mean, 0)
     return h
 
 
