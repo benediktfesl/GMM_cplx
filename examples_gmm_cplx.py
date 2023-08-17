@@ -1,7 +1,9 @@
+# Author: Benedikt Fesl <benedikt.fesl@tum.de>
+# License: BSD 3 clause
+
 import gmm_cplx
 import time
 import numpy as np
-import utils as ut
 
 if __name__ == '__main__':
     """

@@ -1,6 +1,14 @@
+# Original code from scikit-learn:
+# Author: Wei Xue <xuewei4d@gmail.com>
+# Modified by Thierry Guillemot <thierry.guillemot.work@gmail.com>
+# License: BSD 3 clause
+
+# Extension to the complex-valued case with (block-)Toeplitz and (block-)circulant covariances:
+# Author: Benedikt Fesl <benedikt.fesl@tum.de>
+# License: BSD 3 clause
+
 import numpy as np
 import scipy.stats
-
 import utils as ut
 from scipy import linalg as scilinalg
 from sklearn.mixture import GaussianMixture
