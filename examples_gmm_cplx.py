@@ -58,4 +58,4 @@ if __name__ == '__main__':
     samples, comps = gm_full.sample(n_samples=100)
     # check generated samples by computing max responsibility
     proba_max_samples = gm_full.predict_cplx(samples)
-    stop = 0
+    print('Test completed.')
