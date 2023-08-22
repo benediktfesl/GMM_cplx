@@ -56,6 +56,7 @@ The results of the following works are (in parts) based on the complex-valued im
 - B. Fesl, A. Faika, N. Turan, M. Joham, and W. Utschick, “Channel Estimation with Reduced Phase Allocations in RIS-Aided Systems,” in *IEEE 24th Int. Workshop Signal Process. Adv. Wireless Commun. (SPAWC)*, 2023.
 - N. Turan, B. Fesl, M. Koller, M. Joham, and W. Utschick, “A Versatile Low-Complexity Feedback Scheme for FDD Systems via Generative Modeling,” 2023, arXiv preprint: 2304.14373.
 - N. Turan, B. Fesl, and W. Utschick, "Enhanced Low-Complexity FDD System Feedback with Variable Bit Lengths via Generative Modeling," in *57th Asilomar Conf. Signals, Syst., Comput.*, 2023.
+- N. Turan, M. Koller, B. Fesl, S. Bazzi, W. Xu and W. Utschick, "GMM-based Codebook Construction and Feedback Encoding in FDD Systems,"in *56th Asilomar Conf. Signals, Syst., Comput.*, 2022, pp. 37-42.
 
 ## Original License
 The original code from https://scikit-learn.org/stable/modules/mixture.html is covered by the following license:
