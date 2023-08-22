@@ -10,7 +10,7 @@ The main implementation is contained in `gmm_cplx.py` with the class `GaussianMi
 The file `examples_gmm_cplx.py` provides useful examples of how to use the code, e.g., with the different covariance structures.
 
 ## Requirements
-This code is written in *Python*. It uses the *numpy*, *scipy*, *sklearn*, and *time* packages. The code was tested with Python 3.7.
+This code is written in *Python*. It uses the *numpy*, *scipy*, *sklearn*, and *time* packages (see requirements.txt). The code was tested with both Python 3.7 and 3.10.
 
 ## Methods of `GaussianMixtureCplx`
 - `fit(X, blocks=None, zero_mean=False)`: Fitting the GMM parameters to the provided complex-valued dataset X of shape `(n_samples, n_dim)`.
