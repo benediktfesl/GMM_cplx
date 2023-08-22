@@ -27,6 +27,8 @@
 *.nav
 *.snm
 *.json
+*.iws
+*.xml
 
 *.pdf
 *.DS_Store
@@ -36,12 +38,9 @@
 #.idea file
 **/.idea/
 *.idea/
-.idea/
+*.idea
 sync_files
 exclude_sync.txt
 results/*
-channel_data/*
-channel_generator/*
 trained_gmm/*
 log/*
-channel_data_quadriga/*

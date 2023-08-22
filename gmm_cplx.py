@@ -391,9 +391,18 @@ class GaussianMixtureCplx:
         labels : array, shape (n_samples,)
             Component labels.
         """
-        #X = _check_X(X, self.n_components, ensure_min_samples=2)
+        # X = _check_X(X, self.n_components, ensure_min_samples=2)
         self.gm._check_n_features(X, reset=True)
-        self.gm._check_initial_parameters(X)
+        self.gm._check_parameters(X)
+
+        # self.gm._validate_params()
+
+        if X.shape[0] < self.gm.n_components:
+            raise ValueError(
+                "Expected n_samples >= n_components "
+                f"but got n_components = {self.gm.n_components}, "
+                f"n_samples = {X.shape[0]}"
+            )
 
         # if we enable warm_start, we will have a unique initialisation
         do_init = not(self.gm.warm_start and hasattr(self, 'converged_'))
