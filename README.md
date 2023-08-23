@@ -49,14 +49,23 @@ Since a (block-)circulant covariance matrix is diagonalized by the (two-dimensio
 ## Research work
 The results of the following works are (in parts) based on the complex-valued implementation:
 - M. Koller, B. Fesl, N. Turan, and W. Utschick, “An Asymptotically MSE-Optimal Estimator Based on Gaussian Mixture Models,” *IEEE Trans. Signal Process.*, vol. 70, pp. 4109–4123, 2022.
+  https://ieeexplore.ieee.org/abstract/document/9842343
 - N. Turan, B. Fesl, M. Grundei, M. Koller, and W. Utschick, “Evaluation of a Gaussian Mixture Model-based Channel Estimator using Measurement Data,” in *Int. Symp. Wireless Commun. Syst. (ISWCS)*, 2022.
+  https://ieeexplore.ieee.org/abstract/document/9940363
 - B. Fesl, M. Joham, S. Hu, M. Koller, N. Turan, and W. Utschick, “Channel Estimation based on Gaussian Mixture Models with Structured Covariances,” in *56th Asilomar Conf. Signals, Syst., Comput.*, 2022, pp. 533–537.
+  https://ieeexplore.ieee.org/abstract/document/10051921
 - B. Fesl, N. Turan, M. Joham, and W. Utschick, “Learning a Gaussian Mixture Model from Imperfect Training Data for Robust Channel Estimation,” *IEEE Wireless Commun. Lett.*, 2023.
+  https://ieeexplore.ieee.org/abstract/document/10078293
 - M. Koller, B. Fesl, N. Turan and W. Utschick, "An Asymptotically Optimal Approximation of the Conditional Mean Channel Estimator Based on Gaussian Mixture Models," *IEEE Int. Conf. Acoust., Speech, Signal Process. (ICASSP)*, 2022, pp. 5268-5272.
+  https://ieeexplore.ieee.org/abstract/document/9747226
 - B. Fesl, A. Faika, N. Turan, M. Joham, and W. Utschick, “Channel Estimation with Reduced Phase Allocations in RIS-Aided Systems,” in *IEEE 24th Int. Workshop Signal Process. Adv. Wireless Commun. (SPAWC)*, 2023.
+  https://arxiv.org/abs/2211.07552
 - N. Turan, B. Fesl, M. Koller, M. Joham, and W. Utschick, “A Versatile Low-Complexity Feedback Scheme for FDD Systems via Generative Modeling,” 2023, arXiv preprint: 2304.14373.
+  https://arxiv.org/abs/2304.14373
 - N. Turan, B. Fesl, and W. Utschick, "Enhanced Low-Complexity FDD System Feedback with Variable Bit Lengths via Generative Modeling," in *57th Asilomar Conf. Signals, Syst., Comput.*, 2023.
+  https://arxiv.org/abs/2305.03427
 - N. Turan, M. Koller, B. Fesl, S. Bazzi, W. Xu and W. Utschick, "GMM-based Codebook Construction and Feedback Encoding in FDD Systems,"in *56th Asilomar Conf. Signals, Syst., Comput.*, 2022, pp. 37-42.
+  https://ieeexplore.ieee.org/abstract/document/10052020
 
 ## Original License
 The original code from https://scikit-learn.org/stable/modules/mixture.html is covered by the following license:
