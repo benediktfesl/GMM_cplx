@@ -135,7 +135,8 @@ class GaussianMixtureCplx:
             self.params['zero_mean'] = True
         else:
             self.params['zero_mean'] = False
-
+        self.params['cov_type'] = self.gm.covariance_type
+        self.params['dft_trafo'] = False # indicate whether parameters are given in Fourier domain
 
         if self.gm.covariance_type == 'full' or self.gm.covariance_type == 'diag' or self.gm.covariance_type \
                 == 'spherical' :
