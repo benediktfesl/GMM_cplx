@@ -96,6 +96,7 @@ class GaussianMixtureCplx:
         self.covs_cplx = None
         self.chol = None
         self.params = dict()
+        self.F2 = None
 
     def __repr__(self):
         return self.gm.__repr__()
