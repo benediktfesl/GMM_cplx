@@ -1,46 +1,59 @@
-#TeX Files
+# OS / editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build / packaging artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# uv
+uv.lock
+
+# Jupyter
+.ipynb_checkpoints/
+
+# LaTeX build artifacts
 *.aux
-*.glo
-*.idx
-*.log
-*.toc
-*.ist
-*.acn
-*.acr
-*.alg
 *.bbl
+*.bcf
 *.blg
 *.dvi
 *.fdb_latexmk
 *.fls
-*.glg
-*.gls
-*.ilg
-*.ind
-*.lof
-*.lot
-*.maf
-*.mtc
-*.mtc1
+*.log
 *.out
+*.run.xml
 *.synctex.gz
+*.toc
+*.xdv
 *.nav
 *.snm
-*.json
-*.iws
-*.xml
 
+# Generated documents / data
 *.pdf
-*.DS_Store
 *.csv
-*__pycache__
 
-#.idea file
-**/.idea/
-*.idea/
-*.idea
+# Project artifacts
 sync_files
 exclude_sync.txt
-results/*
-trained_gmm/*
-log/*
+results/
+trained_gmm/
+log/
