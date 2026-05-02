@@ -1,7 +1,7 @@
 # Author: Benedikt Fesl <benedikt.fesl@tum.de>
 # License: BSD 3 clause
 
-import gmm_cplx
+from cplx_gmm import GaussianMixtureCplx
 import time
 import numpy as np
 
@@ -29,7 +29,7 @@ if __name__ == '__main__':
     # GMM training
     #
     tic = time.time()
-    gm_full = gmm_cplx.GaussianMixtureCplx(
+    gm_full = GaussianMixtureCplx(
         n_components=16,
         random_state=2,
         max_iter=100,

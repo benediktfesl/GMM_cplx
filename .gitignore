@@ -25,7 +25,7 @@ dist/
 .eggs/
 
 # uv
-uv.lock
+# uv.lock
 
 # Jupyter
 .ipynb_checkpoints/

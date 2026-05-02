@@ -9,7 +9,7 @@
 
 import numpy as np
 import scipy.stats
-import utils as ut
+from . import _utils as ut
 from scipy import linalg as scilinalg
 from sklearn.mixture import GaussianMixture
 from scipy.special import logsumexp
