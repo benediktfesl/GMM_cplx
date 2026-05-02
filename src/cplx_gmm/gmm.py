@@ -19,83 +19,15 @@ from sklearn.exceptions import ConvergenceWarning
 from sklearn.utils.validation import check_is_fitted
 
 from . import _utils as ut
-
-
-def compute_precision_cholesky(covariances, covariance_type):
-    """Compute the Cholesky decomposition of the precisions.
-
-    Parameters
-    ----------
-    covariances : array-like
-        The covariance matrix of the current components.
-        The shape depends of the covariance_type.
-
-    covariance_type : {'full', 'tied', 'diag', 'spherical'}
-        The type of precision matrices.
-
-    Returns
-    -------
-    precisions_cholesky : array-like
-        The cholesky decomposition of sample precisions of the current
-        components. The shape depends of the covariance_type.
-    """
-    estimate_precision_error_message = (
-        "Fitting the mixture model failed because some components have "
-        "ill-defined empirical covariance (for instance caused by singleton "
-        "or collapsed samples). Try to decrease the number of components, "
-        "or increase reg_covar."
-    )
-
-    if covariance_type == "full":
-        n_components, n_features, _ = covariances.shape
-        precisions_chol = np.empty(
-            (n_components, n_features, n_features), dtype=complex
-        )
-        for k, covariance in enumerate(covariances):
-            try:
-                cov_chol = scilinalg.cholesky(covariance, lower=True)
-            except scilinalg.LinAlgError as exc:
-                raise ValueError(estimate_precision_error_message) from exc
-            precisions_chol[k] = scilinalg.solve_triangular(
-                cov_chol, np.eye(n_features), lower=True
-            ).T.conj()
-    else:
-        if np.any(np.less_equal(covariances, 0.0)):
-            raise ValueError(estimate_precision_error_message)
-        precisions_chol = 1.0 / np.sqrt(covariances).conj()
-    return precisions_chol
-
-
-def _compute_log_det_cholesky(matrix_chol, covariance_type, n_features):
-    """Compute the log-det of the cholesky decomposition of matrices.
-
-    Parameters
-    ----------
-    matrix_chol : array-like
-        Cholesky decompositions of the matrices.
-        'full' : shape of (n_components, n_features, n_features)
-        'tied' : shape of (n_features, n_features)
-        'diag' : shape of (n_components, n_features)
-        'spherical' : shape of (n_components,)
-    covariance_type : {'full', 'tied', 'diag', 'spherical'}
-    n_features : int
-        Number of features.
-
-    Returns
-    -------
-    log_det_precision_chol : array-like of shape (n_components,)
-        The determinant of the precision matrix for each component.
-    """
-    if covariance_type == "full":
-        n_components, _, _ = matrix_chol.shape
-        log_det_chol = np.sum(
-            np.log(matrix_chol.reshape(n_components, -1)[:, :: n_features + 1]), 1
-        )
-    elif covariance_type == "diag":
-        log_det_chol = np.sum(np.log(matrix_chol), axis=1)
-    else:
-        log_det_chol = n_features * (np.log(matrix_chol))
-    return log_det_chol
+from ._covariances import (
+    compute_log_det_cholesky,
+    compute_precision_cholesky,
+    estimate_gaussian_parameters,
+)
+from ._transforms import (
+    diagonal_fft2_parameters_to_full_covariance,
+    diagonal_fft_parameters_to_full_covariance,
+)
 
 
 class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
@@ -312,7 +244,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         if requested_covariance_type in {"full", "diag", "spherical"}:
             self._em_covariance_type = requested_covariance_type
             self._fit_em(X)
-            self._store_public_fit_attributes()
 
         elif requested_covariance_type == "circulant":
             n_features = X.shape[1]
@@ -355,7 +286,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             ] / np.sqrt(2 * n_features)
 
             self._fit_em(X)
-            self._store_public_fit_attributes()
 
         elif requested_covariance_type == "block-toeplitz":
             if self.blocks is None:
@@ -381,7 +311,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             self._F2 = np.kron(F2_1, F2_2)
 
             self._fit_em(X)
-            self._store_public_fit_attributes()
 
         else:
             raise NotImplementedError(
@@ -391,29 +320,12 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
 
         return self
 
-    def _store_public_fit_attributes(self):
-        """Store backward-compatible aliases for fitted complex parameters."""
-        self.means_cplx = self.means_.copy()
-        self.covs_cplx = self.covariances_.copy()
-        self.chol = self.precisions_cholesky_.copy()
-
     def _convert_diagonal_fft_fit_to_full_covariance(self):
         """Transform diagonal FFT-domain parameters to full covariance form."""
-        means_dft = self.means_.copy()
-        covariances_dft = self.covariances_.copy()
-
-        n_components, n_features = means_dft.shape
-
-        self.means_ = np.fft.ifft(means_dft, axis=1) * np.sqrt(n_features)
-
-        self.covariances_ = np.empty(
-            (n_components, n_features, n_features),
-            dtype=complex,
+        self.means_, self.covariances_ = diagonal_fft_parameters_to_full_covariance(
+            self.means_,
+            self.covariances_,
         )
-
-        for k in range(n_components):
-            first_col = np.fft.ifft(covariances_dft[k])
-            self.covariances_[k] = scilinalg.circulant(first_col)
 
         self.precisions_cholesky_ = compute_precision_cholesky(
             self.covariances_,
@@ -425,41 +337,15 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             self.precisions_[k] = prec_chol @ prec_chol.T.conj()
 
         self._em_covariance_type = "full"
-        self._store_public_fit_attributes()
 
     def _convert_diagonal_fft2_fit_to_full_covariance(self, n_1, n_2):
         """Transform diagonal 2D FFT-domain parameters to full block-circulant form."""
-        means_dft = self.means_.copy()
-        covariances_dft = self.covariances_.copy()
-
-        n_components = means_dft.shape[0]
-        n_features = n_1 * n_2
-
-        means_grid = means_dft.reshape(n_components, n_1, n_2)
-        self.means_ = (
-            np.fft.ifft2(means_grid, axes=(1, 2)) * np.sqrt(n_features)
-        ).reshape(n_components, n_features)
-
-        self.covariances_ = np.empty(
-            (n_components, n_features, n_features),
-            dtype=complex,
+        self.means_, self.covariances_ = diagonal_fft2_parameters_to_full_covariance(
+            self.means_,
+            self.covariances_,
+            n_1,
+            n_2,
         )
-
-        eye = np.eye(n_features, dtype=complex).reshape(n_features, n_1, n_2)
-
-        for k in range(n_components):
-            spectral_variances = covariances_dft[k].reshape(n_1, n_2)
-
-            # Apply the block-circulant covariance operator to each basis vector.
-            cov_columns = (
-                np.fft.ifft2(
-                    spectral_variances[np.newaxis, :, :]
-                    * np.fft.fft2(eye, axes=(1, 2)),
-                    axes=(1, 2),
-                )
-            ).reshape(n_features, n_features)
-
-            self.covariances_[k] = cov_columns.T
 
         self.precisions_cholesky_ = compute_precision_cholesky(
             self.covariances_,
@@ -471,7 +357,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             self.precisions_[k] = prec_chol @ prec_chol.T.conj()
 
         self._em_covariance_type = "full"
-        self._store_public_fit_attributes()
 
     def sample(self, n_samples=1):
         """Generate random samples from the fitted Gaussian distribution.
@@ -508,8 +393,8 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
                     self._effective_covariance_type(),
                 )
                 for mean, covariance, sample in zip(
-                    self.means_cplx,
-                    self.covs_cplx,
+                    self.means_,
+                    self.covariances_,
                     n_samples_comp,
                     strict=True,
                 )
@@ -550,39 +435,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         """Compute the mean log-likelihood under the fitted model."""
         del y
         return self.score_samples(X).mean()
-
-    def predict_cplx(self, X):
-        """Predict the labels for the data samples in X using trained model.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            List of n_features-dimensional data points. Each row
-            corresponds to a single data point.
-
-        Returns
-        -------
-        labels : array, shape (n_samples,)
-            Component labels.
-        """
-        return self.predict(X)
-
-    def predict_proba_cplx(self, X):
-        """Predict posterior probability of each component given the data.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            List of n_features-dimensional data points. Each row
-            corresponds to a single data point.
-
-        Returns
-        -------
-        resp : array, shape (n_samples, n_components)
-            Returns the probability each Gaussian (state) in
-            the model given each sample.
-        """
-        return self.predict_proba(X)
 
     def _estimate_weighted_log_prob(self, X):
         """Estimate the weighted log-probabilities, log P(X | Z) + log weights.
@@ -635,7 +487,7 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         # matrix.
         # In short: det(precision_chol) = - det(precision) / 2
         log_det = np.real(
-            _compute_log_det_cholesky(precisions_chol, covariance_type, n_features)
+            compute_log_det_cholesky(precisions_chol, covariance_type, n_features)
         )
 
         if covariance_type == "full":
@@ -663,15 +515,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         # Since we are using the precision of the Cholesky decomposition,
         # `- log_det_precision` becomes `+ 2 * log_det_precision_chol`
         return -(n_features * np.log(np.pi) + np.real(log_prob)) + 2 * log_det
-
-    def fit_cplx(self, X, y=None):
-        """Fit the direct complex-valued EM model.
-
-        This method is kept for backward compatibility. New code should use
-        fit(X).
-        """
-        self._fit_em(X, y=y)
-        return self
 
     def fit_predict(self, X, y=None):
         """Estimate model parameters using X and predict the labels for X.
@@ -804,11 +647,13 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             "full" if self._em_covariance_type == "inv-em" else self._em_covariance_type
         )
 
-        weights, means, covariances = self.estimate_gaussian_parameters(
+        weights, means, covariances, self._sigma = estimate_gaussian_parameters(
             X,
             resp,
             self.reg_covar,
             init_covariance_type,
+            zero_mean=self._zero_mean,
+            sigma=self._sigma,
         )
         weights /= n_samples
 
@@ -905,11 +750,21 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         """
         n_samples, _ = X.shape
 
-        weights, means, covariances = self.estimate_gaussian_parameters(
+        covariance_inv = (
+            np.linalg.pinv(self.covariances_, hermitian=True)
+            if self._em_covariance_type == "inv-em"
+            else None
+        )
+
+        weights, means, covariances, self._sigma = estimate_gaussian_parameters(
             X,
             np.exp(log_resp),
             self.reg_covar,
             self._em_covariance_type,
+            zero_mean=self._zero_mean,
+            covariance_inv=covariance_inv,
+            fourier_embedding=self._F2,
+            sigma=self._sigma,
         )
 
         self.weights_ = weights / n_samples
@@ -936,182 +791,3 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
 
         else:
             self.precisions_ = np.abs(self.precisions_cholesky_) ** 2
-
-    def estimate_gaussian_parameters(self, X, resp, reg_covar, covariance_type):
-        """Estimate the Gaussian distribution parameters.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            The input data array.
-
-        resp : array-like of shape (n_samples, n_components)
-            The responsibilities for each data sample in X.
-
-        reg_covar : float
-            The regularization added to the diagonal of the covariance matrices.
-
-        covariance_type : {'full', 'tied', 'diag', 'spherical'}
-            The type of precision matrices.
-
-        Returns
-        -------
-        nk : array-like of shape (n_components,)
-            The numbers of data samples in the current components.
-
-        means : array-like of shape (n_components, n_features)
-            The centers of the current components.
-
-        covariances : array-like
-            The covariance matrix of the current components.
-            The shape depends of the covariance_type.
-        """
-        nk = np.real(resp).sum(axis=0) + 10 * np.finfo(resp.dtype).eps
-        means = np.dot(resp.T, X) / nk[:, np.newaxis]
-        if self._zero_mean:
-            means = np.zeros_like(means)
-        covariances = {
-            "full": self.estimate_gaussian_covariances_full,
-            "diag": self.estimate_gaussian_covariances_diag,
-            "inv-em": self.estimate_gaussian_covariances_inv,
-            "spherical": self.estimate_gaussian_covariances_spherical,
-        }[covariance_type](resp, X, nk, means, reg_covar)
-        return nk, means, covariances
-
-    def estimate_gaussian_covariances_full(self, resp, X, nk, means, reg_covar):
-        """Estimate the full covariance matrices.
-
-        Parameters
-        ----------
-        resp : array-like of shape (n_samples, n_components)
-
-        X : array-like of shape (n_samples, n_features)
-
-        nk : array-like of shape (n_components,)
-
-        means : array-like of shape (n_components, n_features)
-
-        reg_covar : float
-
-        Returns
-        -------
-        covariances : array, shape (n_components, n_features, n_features)
-            The covariance matrix of the current components.
-        """
-        n_components, n_features = means.shape
-        covariances = np.empty((n_components, n_features, n_features), dtype=complex)
-        for k in range(n_components):
-            diff = X - means[k]
-            covariances[k] = np.dot(resp[:, k] * diff.T, diff.conj()) / nk[k]
-            covariances[k].flat[:: n_features + 1] += reg_covar
-        return covariances
-
-    def estimate_gaussian_covariances_diag(self, resp, X, nk, means, reg_covar):
-        """Estimate the diagonal covariance vectors.
-
-        Parameters
-        ----------
-        responsibilities : array-like of shape (n_samples, n_components)
-
-        X : array-like of shape (n_samples, n_features)
-
-        nk : array-like of shape (n_components,)
-
-        means : array-like of shape (n_components, n_features)
-
-        reg_covar : float
-
-        Returns
-        -------
-        covariances : array, shape (n_components, n_features)
-            The covariance vector of the current components.
-        """
-        avg_X2 = np.dot(resp.T, X * X.conj()) / nk[:, np.newaxis]
-        avg_means2 = np.abs(means) ** 2
-        avg_X_means = means.conj() * np.dot(resp.T, X) / nk[:, np.newaxis]
-        return (
-            np.real(avg_X2 - 2.0 * np.real(avg_X_means) + avg_means2) + reg_covar + 0j
-        )
-
-    def estimate_gaussian_covariances_inv(self, resp, X, nk, means, reg_covar):
-        """Estimate the Topelitz-structured covariance matrices.
-
-        Uses the EM-based inverse covariance update from:
-
-        T. A. Barton and D. R. Fuhrmann, "Covariance estimation for
-        multidimensional data using the EM algorithm," Proceedings of the 27th
-        Asilomar Conference on Signals, Systems and Computers, 1993,
-        pp. 203-207 vol. 1.
-
-        Parameters
-        ----------
-        resp : array-like of shape (n_samples, n_components)
-
-        X : array-like of shape (n_samples, n_features)
-
-        nk : array-like of shape (n_components,)
-
-        means : array-like of shape (n_components, n_features)
-
-        reg_covar : float
-
-        Returns
-        -------
-        covariances : array, shape (n_components, n_features, n_features)
-            The covariance matrix of the current components.
-        """
-        n_components, n_features = means.shape
-        covariances = np.empty((n_components, n_features, n_features), dtype=complex)
-        covariance_inv = np.linalg.pinv(self.covariances_, hermitian=True)
-
-        for k in range(n_components):
-            diff = X - means[k]
-            covariances[k] = np.dot(resp[:, k] * diff.T, diff.conj()) / nk[k]
-
-            theta = np.real(
-                self._F2
-                @ (
-                    covariance_inv[k] @ covariances[k] @ covariance_inv[k]
-                    - covariance_inv[k]
-                )
-                @ self._F2.conj().T
-            )
-
-            self._sigma[k] = self._sigma[k] + np.diag(
-                self._sigma[k] * theta * self._sigma[k]
-            )
-            self._sigma[k][self._sigma[k] < reg_covar] = reg_covar
-
-            covariances[k] = np.multiply(self._F2.conj().T, self._sigma[k]) @ self._F2
-            covariances[k].flat[:: n_features + 1] += reg_covar
-
-        return covariances
-
-    def estimate_gaussian_covariances_spherical(self, resp, X, nk, means, reg_covar):
-        """Estimate the full covariance matrices.
-
-        Parameters
-        ----------
-        resp : array-like of shape (n_samples, n_components)
-
-        X : array-like of shape (n_samples, n_features)
-
-        nk : array-like of shape (n_components,)
-
-        means : array-like of shape (n_components, n_features)
-
-        reg_covar : float
-
-        Returns
-        -------
-        covariances : array, shape (n_components, n_features, n_features)
-            The covariance matrix of the current components.
-        """
-        return (
-            np.real(
-                self.estimate_gaussian_covariances_diag(
-                    resp, X, nk, means, reg_covar
-                ).mean(1)
-            )
-            + 0j
-        )

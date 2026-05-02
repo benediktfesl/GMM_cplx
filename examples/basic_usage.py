@@ -46,8 +46,10 @@ if __name__ == "__main__":
         max_iter=100,
         n_init=1,
         covariance_type=covariance_type,
+        blocks=blocks,
+        zero_mean=zero_mean,
     )
-    gm_full.fit(h_train, blocks=blocks, zero_mean=zero_mean)
+    gm_full.fit(h_train)
     toc = time.time()
     print(f"Training done: {toc - tic} sec.")
 
@@ -61,14 +63,14 @@ if __name__ == "__main__":
     # Responsibility evaluation
     #
     # soft responsibilities for all components
-    proba_soft = gm_full.predict_proba_cplx(h_val)
+    proba_soft = gm_full.predict_proba(h_val)
     # components with max responsibilities
-    proba_max = gm_full.predict_cplx(h_val)
+    proba_max = gm_full.predict(h_val)
 
     #
     # Generate new samples
     #
     samples, comps = gm_full.sample(n_samples=100)
     # check generated samples by computing max responsibility
-    proba_max_samples = gm_full.predict_cplx(samples)
+    proba_max_samples = gm_full.predict(samples)
     print("Test completed.")

@@ -16,8 +16,8 @@ def test_fit_predict_proba_shapes() -> None:
 
     model.fit(X)
 
-    labels = model.predict_cplx(X)
-    proba = model.predict_proba_cplx(X)
+    labels = model.predict(X)
+    proba = model.predict_proba(X)
 
     assert labels.shape == (100,)
     assert proba.shape == (100, 2)
