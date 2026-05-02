@@ -8,14 +8,16 @@
 # License: BSD 3 clause
 
 import numpy as np
-import scipy.stats
-from . import _utils as ut
 from scipy import linalg as scilinalg
-from sklearn.mixture import GaussianMixture
 from scipy.special import logsumexp
 import warnings
-from sklearn.exceptions import ConvergenceWarning
+
 from sklearn import cluster
+from sklearn.exceptions import ConvergenceWarning
+from sklearn.base import BaseEstimator, ClusterMixin, DensityMixin
+from sklearn.utils.validation import check_is_fitted
+
+from cplx_gmm import _utils as ut
 
 
 def compute_precision_cholesky(covariances, covariance_type):
@@ -89,118 +91,355 @@ def _compute_log_det_cholesky(matrix_chol, covariance_type, n_features):
 
 
 
-class GaussianMixtureCplx:
-    def __init__(self, *gmm_args, **gmm_kwargs):
-        self.gm = GaussianMixture(*gmm_args, **gmm_kwargs)
-        self.means_cplx = None
-        self.covs_cplx = None
-        self.chol = None
-        self.params = dict()
-        self.F2 = None
+class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
+    """Complex-valued Gaussian mixture model.
 
-    def __repr__(self):
-        return self.gm.__repr__()
+    The model estimates mixtures of circularly symmetric complex Gaussian
+    distributions using expectation-maximization.
+    """
 
-    def __str__(self):
-        return self.gm.__str__()
+    _valid_covariance_types = {
+        "full",
+        "diag",
+        "spherical",
+        "circulant",
+        "block-circulant",
+        "toeplitz",
+        "block-toeplitz",
+    }
+
+    def __init__(
+        self,
+        n_components=1,
+        covariance_type="full",
+        tol=1e-3,
+        reg_covar=1e-6,
+        max_iter=100,
+        n_init=1,
+        init_params="kmeans",
+        weights_init=None,
+        means_init=None,
+        precisions_init=None,
+        random_state=None,
+        warm_start=False,
+        verbose=0,
+        verbose_interval=10,
+        zero_mean=False,
+        blocks=None,
+    ):
+        self.n_components = n_components
+        self.covariance_type = covariance_type
+        self.tol = tol
+        self.reg_covar = reg_covar
+        self.max_iter = max_iter
+        self.n_init = n_init
+        self.init_params = init_params
+        self.weights_init = weights_init
+        self.means_init = means_init
+        self.precisions_init = precisions_init
+        self.random_state = random_state
+        self.warm_start = warm_start
+        self.verbose = verbose
+        self.verbose_interval = verbose_interval
+        self.zero_mean = zero_mean
+        self.blocks = blocks
+
+    def _validate_parameters(self, X):
+        if self.n_components < 1:
+            raise ValueError(
+                f"n_components must be >= 1, got {self.n_components}."
+            )
+
+        if self.covariance_type not in self._valid_covariance_types:
+            raise ValueError(
+                f"Invalid covariance_type={self.covariance_type!r}. "
+                f"Expected one of {sorted(self._valid_covariance_types)}."
+            )
+
+        if self.tol < 0:
+            raise ValueError(f"tol must be non-negative, got {self.tol}.")
+
+        if self.reg_covar < 0:
+            raise ValueError(
+                f"reg_covar must be non-negative, got {self.reg_covar}."
+            )
+
+        if self.max_iter < 1:
+            raise ValueError(f"max_iter must be >= 1, got {self.max_iter}.")
+
+        if self.n_init < 1:
+            raise ValueError(f"n_init must be >= 1, got {self.n_init}.")
+
+        if self.init_params not in {"kmeans", "random"}:
+            raise ValueError(
+                f"init_params must be 'kmeans' or 'random', got {self.init_params!r}."
+            )
+
+        if X.shape[0] < self.n_components:
+            raise ValueError(
+                "Expected n_samples >= n_components "
+                f"but got n_components = {self.n_components}, "
+                f"n_samples = {X.shape[0]}."
+            )
+
+    def _check_X(self, X, reset):
+        X = np.asarray(X)
+
+        if X.ndim != 2:
+            raise ValueError(
+                f"Expected X to be a 2D array, got array with shape {X.shape}."
+            )
+
+        if not np.iscomplexobj(X):
+            X = X.astype(complex)
+
+        n_features = X.shape[1]
+
+        if reset:
+            self.n_features_in_ = n_features
+        elif n_features != self.n_features_in_:
+            raise ValueError(
+                f"X has {n_features} features, but GaussianMixtureCplx "
+                f"is expecting {self.n_features_in_} features."
+            )
+
+        return X
+
+    def _verbose_msg_init_beg(self, init):
+        if self.verbose:
+            print(f"Initialization {init + 1}")
+
+    def _verbose_msg_iter_end(self, n_iter, change):
+        if self.verbose and n_iter % self.verbose_interval == 0:
+            print(f"  Iteration {n_iter}, change {change:.6f}")
+
+    def _verbose_msg_init_end(self, lower_bound):
+        if self.verbose:
+            print(f"Initialization converged with lower bound {lower_bound:.6f}")
+
+    def _get_parameters(self):
+        return (
+            self.weights_,
+            self.means_,
+            self.covariances_,
+            self.precisions_cholesky_,
+        )
 
     @property
     def covariances(self):
-        return self.gm.covariances_.copy()
+        check_is_fitted(self)
+        return self.covariances_.copy()
 
     @property
     def converged(self):
-        return self.gm.converged_
+        check_is_fitted(self)
+        return self.converged_
 
     @property
     def means(self):
-        return self.gm.means_.copy()
+        check_is_fitted(self)
+        return self.means_.copy()
 
     @property
     def precisions(self):
-        return np.einsum('ijk,ilk->ijl', self.gm.precisions_cholesky_, self.gm.precisions_cholesky_.conj())
+        check_is_fitted(self)
+        return self.precisions_.copy()
 
     @property
     def precisions_cholesky(self):
-        return self.gm.precisions_cholesky_.copy()
+        check_is_fitted(self)
+        return self.precisions_cholesky_.copy()
 
     @property
     def weights(self):
-        return self.gm.weights_.copy()
+        check_is_fitted(self)
+        return self.weights_.copy()
+    
 
-    def fit(self, h, blocks=None, zero_mean=False):
-        """
-        Fit an sklearn Gaussian mixture model using complex data h.
-        """
-        if zero_mean:
-            self.params['zero_mean'] = True
-        else:
-            self.params['zero_mean'] = False
-        self.params['cov_type'] = self.gm.covariance_type
-        self.params['dft_trafo'] = False # indicate whether parameters are given in Fourier domain
+    def _fit_em(self, X, y=None):
+        self.fit_predict(X, y=y)
+        return self
 
-        if self.gm.covariance_type == 'full' or self.gm.covariance_type == 'diag' or self.gm.covariance_type \
-                == 'spherical' :
-            self.fit_cplx(h)
-            self.means_cplx = self.gm.means_.copy()
-            self.covs_cplx = self.gm.covariances_.copy()
-            self.chol = self.gm.precisions_cholesky_.copy()
-        elif self.gm.covariance_type == 'circulant':
-            dft_matrix = np.fft.fft(np.eye(h.shape[-1], dtype=complex)) / np.sqrt(h.shape[-1])
-            self.gm.covariance_type = 'diag'
-            self.fit_cplx(np.fft.fft(h, axis=1) / np.sqrt(h.shape[-1]))
-            self.means_cplx = self.gm.means_ @ dft_matrix.conj()
-            self.gm._means = self.means_cplx.copy()
-            self.covs_cplx = np.zeros([self.means_cplx.shape[0], self.means_cplx.shape[-1],
-                                       self.means_cplx.shape[-1]], dtype=complex)
-            for i in range(self.means_cplx.shape[0]):
-                self.covs_cplx[i] = dft_matrix.conj().T @ np.diag(self.gm.covariances_[i]) @ dft_matrix
-            self.gm.covariances_ = self.covs_cplx.copy()
-            self.chol = compute_precision_cholesky(self.covs_cplx, 'full')
-            self.gm.precisions_cholesky_ = self.chol.copy()
-            self.gm.covariance_type = 'full'
-        elif self.gm.covariance_type == 'block-circulant':
-            self.gm.covariance_type = 'diag'
-            n_1, n_2 = blocks
-            F1 = np.fft.fft(np.eye(n_1)) / np.sqrt(n_1)
-            F2 = np.fft.fft(np.eye(n_2)) / np.sqrt(n_2)
-            dft_matrix = np.kron(F1, F2)
-            self.F2 = dft_matrix
-            self.fit_cplx(np.squeeze(dft_matrix @ np.expand_dims(h, 2)))
-            self.means_cplx = self.gm.means_ @ dft_matrix.conj()
-            self.gm._means = self.means_cplx.copy()
-            self.covs_cplx = np.zeros([self.means_cplx.shape[0], self.means_cplx.shape[-1],
-                                       self.means_cplx.shape[-1]], dtype=complex)
-            for i in range(self.means_cplx.shape[0]):
-                self.covs_cplx[i] = dft_matrix.conj().T @ np.diag(self.gm.covariances_[i]) @ dft_matrix
-            self.gm.covariances_ = self.covs_cplx.copy()
-            self.chol = compute_precision_cholesky(self.covs_cplx, 'full')
-            self.gm.precisions_cholesky_ = self.chol.copy()
-            self.gm.covariance_type = 'full'
-            self.gm.means_ = self.means_cplx
-            self.gm.precisions_cholesky_ = self.chol
-        elif self.gm.covariance_type == 'toeplitz':
-            self.params['inv-em'] = True
-            self.gm.covariance_type = 'full'
-            n_1 = h.shape[1]
-            self.F2 = np.fft.fft(np.eye(2 * n_1))[:, :n_1] / np.sqrt(2 * n_1)
-            self.fit_cplx(h)
-            self.means_cplx = self.gm.means_.copy()
-            self.covs_cplx = self.gm.covariances_.copy()
-            self.chol = self.gm.precisions_cholesky_.copy()
-        elif self.gm.covariance_type == 'block-toeplitz':
-            self.params['inv-em'] = True
-            self.gm.covariance_type = 'full'
-            n_1, n_2 = blocks
-            F2_1 = np.fft.fft(np.eye(2 * n_1))[:, :n_1] / np.sqrt(2 * n_1)
-            F2_2 = np.fft.fft(np.eye(2 * n_2))[:, :n_2] / np.sqrt(2 * n_2)
-            self.F2 = np.kron(F2_1, F2_2)
-            self.fit_cplx(h)
-            self.means_cplx = self.gm.means_.copy()
-            self.covs_cplx = self.gm.covariances_.copy()
-            self.chol = self.gm.precisions_cholesky_.copy()
+
+    def fit(self, X, y=None):
+        """Fit the complex-valued Gaussian mixture model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Complex-valued input samples.
+
+        y : Ignored
+            Present for sklearn API compatibility.
+
+        Returns
+        -------
+        self : GaussianMixtureCplx
+            Fitted estimator.
+        """
+        del y  # unused, kept for sklearn API compatibility
+
+        X = self._check_X(X, reset=True)
+        self._validate_parameters(X)
+
+        requested_covariance_type = self.covariance_type
+
+        self._fit_covariance_type = requested_covariance_type
+        self._em_covariance_type = requested_covariance_type
+        self._zero_mean = self.zero_mean
+        self._dft_trafo = False
+        self._dft_matrix = None
+        self._F2 = None
+        self._sigma = None
+
+        if requested_covariance_type in {"full", "diag", "spherical"}:
+            self._em_covariance_type = requested_covariance_type
+            self._fit_em(X)
+            self._store_public_fit_attributes()
+
+        elif requested_covariance_type == "circulant":
+            dft_matrix = self._make_dft_matrix(X.shape[1])
+
+            self._em_covariance_type = "diag"
+            X_dft = X @ dft_matrix.T.conj()
+            self._fit_em(X_dft)
+
+            self._convert_diagonal_dft_fit_to_full_covariance(dft_matrix)
+
+        elif requested_covariance_type == "block-circulant":
+            if self.blocks is None:
+                raise ValueError(
+                    "blocks must be provided for covariance_type='block-circulant'."
+                )
+
+            n_1, n_2 = self.blocks
+            if n_1 * n_2 != X.shape[1]:
+                raise ValueError(
+                    "For covariance_type='block-circulant', blocks must satisfy "
+                    f"n_1 * n_2 == n_features, got {n_1} * {n_2} != {X.shape[1]}."
+                )
+
+            dft_matrix = self._make_block_dft_matrix(n_1, n_2)
+
+            self._em_covariance_type = "diag"
+            self._dft_matrix = dft_matrix
+            X_dft = X @ dft_matrix.T.conj()
+            self._fit_em(X_dft)
+
+            self._convert_diagonal_dft_fit_to_full_covariance(dft_matrix)
+
+        elif requested_covariance_type == "toeplitz":
+            n_features = X.shape[1]
+
+            self._em_covariance_type = "inv-em"
+            self._F2 = (
+                np.fft.fft(np.eye(2 * n_features, dtype=complex))[:, :n_features]
+                / np.sqrt(2 * n_features)
+            )
+
+            self._fit_em(X)
+            self._store_public_fit_attributes()
+
+        elif requested_covariance_type == "block-toeplitz":
+            if self.blocks is None:
+                raise ValueError(
+                    "blocks must be provided for covariance_type='block-toeplitz'."
+                )
+
+            n_1, n_2 = self.blocks
+            if n_1 * n_2 != X.shape[1]:
+                raise ValueError(
+                    "For covariance_type='block-toeplitz', blocks must satisfy "
+                    f"n_1 * n_2 == n_features, got {n_1} * {n_2} != {X.shape[1]}."
+                )
+
+            F2_1 = np.fft.fft(np.eye(2 * n_1, dtype=complex))[:, :n_1] / np.sqrt(
+                2 * n_1
+            )
+            F2_2 = np.fft.fft(np.eye(2 * n_2, dtype=complex))[:, :n_2] / np.sqrt(
+                2 * n_2
+            )
+
+            self._em_covariance_type = "inv-em"
+            self._F2 = np.kron(F2_1, F2_2)
+
+            self._fit_em(X)
+            self._store_public_fit_attributes()
+
         else:
-            raise NotImplementedError(f'Fitting for covariance_type = {self.gm.covariance_type} is not implemented.')
+            raise NotImplementedError(
+                f"Fitting for covariance_type={requested_covariance_type!r} "
+                "is not implemented."
+            )
+
+        return self
+    
+
+    def _make_dft_matrix(self, n_features):
+        return np.fft.fft(np.eye(n_features, dtype=complex)) / np.sqrt(n_features)
+
+
+    def _make_block_dft_matrix(self, n_1, n_2):
+        F1 = np.fft.fft(np.eye(n_1, dtype=complex)) / np.sqrt(n_1)
+        F2 = np.fft.fft(np.eye(n_2, dtype=complex)) / np.sqrt(n_2)
+        return np.kron(F1, F2)
+
+
+    def _store_public_fit_attributes(self):
+        self.means_cplx = self.means_.copy()
+        self.covs_cplx = self.covariances_.copy()
+        self.chol = self.precisions_cholesky_.copy()
+
+
+    def _convert_diagonal_dft_fit_to_full_covariance(self, dft_matrix):
+        means_dft = self.means_.copy()
+        covariances_dft = self.covariances_.copy()
+
+        self.means_ = means_dft @ dft_matrix.conj()
+
+        n_components, n_features = self.means_.shape
+        self.covariances_ = np.zeros(
+            (n_components, n_features, n_features),
+            dtype=complex,
+        )
+
+        for k in range(n_components):
+            self.covariances_[k] = (
+                dft_matrix.conj().T
+                @ np.diag(covariances_dft[k])
+                @ dft_matrix
+            )
+
+        self.precisions_cholesky_ = compute_precision_cholesky(
+            self.covariances_,
+            covariance_type="full",
+        )
+        self.precisions_ = np.empty_like(self.precisions_cholesky_)
+
+        for k, prec_chol in enumerate(self.precisions_cholesky_):
+            self.precisions_[k] = prec_chol @ prec_chol.T.conj()
+
+        self._em_covariance_type = "full"
+
+        self.means_cplx = self.means_.copy()
+        self.covs_cplx = self.covariances_.copy()
+        self.chol = self.precisions_cholesky_.copy()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def sample(self, n_samples=1):
         """Generate random samples from the fitted Gaussian distribution.
@@ -236,12 +475,11 @@ class GaussianMixtureCplx:
             ]
         )
 
-
         y = np.concatenate(
             [np.full(sample, j, dtype=int) for j, sample in enumerate(n_samples_comp)]
         )
-
         return (X, y)
+    
 
     def predict_cplx(self, X):
         """Predict the labels for the data samples in X using trained model.
@@ -258,6 +496,7 @@ class GaussianMixtureCplx:
                     Component labels.
                 """
         return self._estimate_weighted_log_prob(X).argmax(axis=1)
+
 
     def predict_proba_cplx(self, X):
         """Predict posterior probability of each component given the data.
@@ -290,11 +529,19 @@ class GaussianMixtureCplx:
         """
         return self._estimate_log_prob(X) + self._estimate_log_weights()
 
+
     def _estimate_log_weights(self):
-        return np.log(self.gm.weights_)
+        return np.log(self.weights_)
+
 
     def _estimate_log_prob(self, X):
-        return self._estimate_log_gaussian_prob(X, self.gm.means_, self.gm.precisions_cholesky_,  self.gm.covariance_type)
+        return self._estimate_log_gaussian_prob(
+            X,
+            self.means_,
+            self.precisions_cholesky_,
+            self._em_covariance_type,
+        )
+
 
     def _estimate_log_gaussian_prob(self, X, means, precisions_chol, covariance_type):
         """Estimate the log Gaussian probability.
@@ -344,30 +591,16 @@ class GaussianMixtureCplx:
         # `- log_det_precision` becomes `+ 2 * log_det_precision_chol`
         return -(n_features * np.log(np.pi) + np.real(log_prob)) + 2*log_det
 
+
     def fit_cplx(self, X, y=None):
-        """Estimate model parameters with the EM algorithm.
+        """Fit the direct complex-valued EM model.
 
-        The method fits the model ``n_init`` times and sets the parameters with
-        which the model has the largest likelihood or lower bound. Within each
-        trial, the method iterates between E-step and M-step for ``max_iter``
-        times until the change of likelihood or lower bound is less than
-        ``tol``, otherwise, a ``ConvergenceWarning`` is raised.
-        If ``warm_start`` is ``True``, then ``n_init`` is ignored and a single
-        initialization is performed upon the first call. Upon consecutive
-        calls, training starts where it left off.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            List of n_features-dimensional data points. Each row
-            corresponds to a single data point.
-
-        Returns
-        -------
-        self
+        This method is kept for backward compatibility. New code should use
+        fit(X).
         """
-        self.fit_predict(X, y)
+        self._fit_em(X, y=y)
         return self
+
 
     def fit_predict(self, X, y=None):
         """Estimate model parameters using X and predict the labels for X.
@@ -393,104 +626,92 @@ class GaussianMixtureCplx:
         labels : array, shape (n_samples,)
             Component labels.
         """
-        # X = _check_X(X, self.n_components, ensure_min_samples=2)
-        self.gm._check_n_features(X, reset=True)
-        self.gm._check_parameters(X)
+        del y  # unused, kept for sklearn API compatibility
 
-        # self.gm._validate_params()
+        X = self._check_X(X, reset=not hasattr(self, "n_features_in_"))
+        self._validate_parameters(X)
 
-        if X.shape[0] < self.gm.n_components:
-            raise ValueError(
-                "Expected n_samples >= n_components "
-                f"but got n_components = {self.gm.n_components}, "
-                f"n_samples = {X.shape[0]}"
-            )
+        do_init = not (self.warm_start and hasattr(self, "converged_"))
+        n_init = self.n_init if do_init else 1
 
-        # if we enable warm_start, we will have a unique initialisation
-        do_init = not(self.gm.warm_start and hasattr(self, 'converged_'))
-        n_init = self.gm.n_init if do_init else 1
+        max_lower_bound = -np.inf
+        self.converged_ = False
 
-        max_lower_bound = -np.infty
-        self.gm.converged_ = False
+        random_state = ut.check_random_state(self.random_state)
 
-        random_state = ut.check_random_state(self.gm.random_state)
+        best_params = None
+        best_n_iter = 0
 
-        n_samples, _ = X.shape
         for init in range(n_init):
-            self.gm._print_verbose_msg_init_beg(init)
+            self._verbose_msg_init_beg(init)
 
             if do_init:
                 self._initialize_parameters(X, random_state)
 
-            lower_bound = (-np.infty if do_init else self.gm.lower_bound_)
+            lower_bound = -np.inf if do_init else self.lower_bound_
 
-            for n_iter in range(1, self.gm.max_iter + 1):
+            for n_iter in range(1, self.max_iter + 1):
                 prev_lower_bound = lower_bound
 
                 log_prob_norm, log_resp = self._e_step(X)
                 self._m_step(X, log_resp)
-                lower_bound = self.gm._compute_lower_bound(
-                    log_resp, log_prob_norm)
+                lower_bound = self._compute_lower_bound(log_resp, log_prob_norm)
 
                 change = lower_bound - prev_lower_bound
-                self.gm._print_verbose_msg_iter_end(n_iter, change)
+                self._verbose_msg_iter_end(n_iter, change)
 
-                if abs(change) < self.gm.tol:
-                    self.gm.converged_ = True
+                if abs(change) < self.tol:
+                    self.converged_ = True
                     break
 
-            self.gm._print_verbose_msg_init_end(lower_bound)
+            self._verbose_msg_init_end(lower_bound)
 
             if lower_bound > max_lower_bound:
                 max_lower_bound = lower_bound
-                best_params = self.gm._get_parameters()
+                best_params = self._get_parameters()
                 best_n_iter = n_iter
 
-        if not self.gm.converged_:
-            warnings.warn('Initialization %d did not converge. '
-                          'Try different init parameters, '
-                          'or increase max_iter, tol '
-                          'or check for degenerate data.'
-                          % (init + 1), ConvergenceWarning)
+        if not self.converged_:
+            warnings.warn(
+                "Initialization did not converge. Try different init parameters, "
+                "or increase max_iter, tol, or check for degenerate data.",
+                ConvergenceWarning,
+            )
+
+        if best_params is None:
+            raise RuntimeError("Failed to fit GaussianMixtureCplx.")
 
         self._set_parameters(best_params)
-        self.gm.n_iter_ = best_n_iter
-        self.gm.lower_bound_ = max_lower_bound
+        self.n_iter_ = best_n_iter
+        self.lower_bound_ = max_lower_bound
 
-        # Always do a final e-step to guarantee that the labels returned by
-        # fit_predict(X) are always consistent with fit(X).predict(X)
-        # for any value of max_iter and tol (and any random_state).
         _, log_resp = self._e_step(X)
-
         return log_resp.argmax(axis=1)
 
 
     def _initialize_parameters(self, X, random_state):
-        """Initialize the model parameters.
-
-        Parameters
-        ----------
-        X : array-like of shape  (n_samples, n_features)
-
-        random_state : RandomState
-            A random number generator instance that controls the random seed
-            used for the method chosen to initialize the parameters.
-        """
+        """Initialize model parameters."""
         n_samples, _ = X.shape
 
-        if self.gm.init_params == 'kmeans':
-            resp = np.zeros((n_samples, self.gm.n_components))
+        if self.init_params == "kmeans":
+            resp = np.zeros((n_samples, self.n_components))
             X_real = ut.cplx2real(X, axis=1)
-            label = cluster.KMeans(n_clusters=self.gm.n_components, n_init=1,
-                                   random_state=random_state).fit(X_real).labels_
-            resp[np.arange(n_samples), label] = 1
-        elif self.gm.init_params == 'random':
-            resp = random_state.rand(n_samples, self.gm.n_components)
+            labels = cluster.KMeans(
+                n_clusters=self.n_components,
+                n_init=1,
+                random_state=random_state,
+            ).fit(X_real).labels_
+            resp[np.arange(n_samples), labels] = 1
+
+        elif self.init_params == "random":
+            resp = random_state.rand(n_samples, self.n_components)
             resp /= resp.sum(axis=1)[:, np.newaxis]
+
         else:
-            raise ValueError("Unimplemented initialization method '%s'"
-                             % self.gm.init_params)
+            raise ValueError(f"Unimplemented initialization method {self.init_params!r}.")
+
         self._initialize(X, resp)
+
 
     def _initialize(self, X, resp):
         """Initialization of the Gaussian mixture parameters.
@@ -504,28 +725,42 @@ class GaussianMixtureCplx:
         n_samples, _ = X.shape
 
         weights, means, covariances = self.estimate_gaussian_parameters(
-            X, resp, self.gm.reg_covar, self.gm.covariance_type)
+            X,
+            resp,
+            self.reg_covar,
+            self._em_covariance_type,
+        )
         weights /= n_samples
 
-        self.gm.weights_ = (weights if self.gm.weights_init is None
-                         else self.gm.weights_init)
-        self.gm.means_ = means if self.gm.means_init is None else self.gm.means_init
+        self.weights_ = weights if self.weights_init is None else self.weights_init
+        self.means_ = means if self.means_init is None else self.means_init
 
-        if self.gm.precisions_init is None:
-            self.gm.covariances_ = covariances
-            self.gm.precisions_cholesky_ = compute_precision_cholesky(
-                covariances, self.gm.covariance_type)
-            if 'inv-em' in self.params:
-                self.gm.Sigma = np.zeros([self.gm.n_components, self.F2.shape[0]])
-                for k in range(self.gm.n_components):
-                    self.gm.Sigma[k] = np.real(np.diag(self.F2 @ covariances[k] @ self.F2.conj().T))
-                    self.gm.Sigma[k][self.gm.Sigma[k] < self.gm.reg_covar] = self.gm.reg_covar
-        elif self.gm.covariance_type == 'full':
-            self.gm.precisions_cholesky_ = np.array(
-                [scipy.linalg.cholesky(prec_init, lower=True)
-                 for prec_init in self.gm.precisions_init])
+        if self.precisions_init is None:
+            self.covariances_ = covariances
+            self.precisions_cholesky_ = compute_precision_cholesky(
+                covariances,
+                self._em_covariance_type,
+            )
+
+            if self._em_covariance_type == "inv-em":
+                self._sigma = np.zeros((self.n_components, self._F2.shape[0]))
+
+                for k in range(self.n_components):
+                    self._sigma[k] = np.real(
+                        np.diag(self._F2 @ covariances[k] @ self._F2.conj().T)
+                    )
+                    self._sigma[k][self._sigma[k] < self.reg_covar] = self.reg_covar
+
+        elif self._em_covariance_type == "full":
+            self.precisions_cholesky_ = np.array(
+                [
+                    scilinalg.cholesky(prec_init, lower=True)
+                    for prec_init in self.precisions_init
+                ]
+            )
+
         else:
-            self.gm.precisions_cholesky_ = np.sqrt(self.gm.precisions_init)
+            self.precisions_cholesky_ = np.sqrt(self.precisions_init)
 
 
     def _e_step(self, X):
@@ -546,6 +781,11 @@ class GaussianMixtureCplx:
         """
         log_prob_norm, log_resp = self._estimate_log_prob_resp(X)
         return np.mean(log_prob_norm), log_resp
+
+
+    def _compute_lower_bound(self, log_resp, log_prob_norm):
+        del log_resp  # kept for API similarity with sklearn's internal implementation
+        return log_prob_norm
 
 
     def _estimate_log_prob_resp(self, X):
@@ -587,32 +827,39 @@ class GaussianMixtureCplx:
             the point of each sample in X.
         """
         n_samples, _ = X.shape
-        if 'inv-em' in self.params:
-            self.gm.weights_, self.gm.means_, self.gm.covariances_ = (
-                self.estimate_gaussian_parameters(X, np.exp(log_resp), self.gm.reg_covar,
-                                                'inv-em'))
-        else:
-            self.gm.weights_, self.gm.means_, self.gm.covariances_ = (
-                self.estimate_gaussian_parameters(X, np.exp(log_resp), self.gm.reg_covar,
-                                              self.gm.covariance_type))
-        self.gm.weights_ /= n_samples
-        self.gm.precisions_cholesky_ = compute_precision_cholesky(
-            self.gm.covariances_, self.gm.covariance_type)
+
+        weights, means, covariances = self.estimate_gaussian_parameters(
+            X,
+            np.exp(log_resp),
+            self.reg_covar,
+            self._em_covariance_type,
+        )
+
+        self.weights_ = weights / n_samples
+        self.means_ = means
+        self.covariances_ = covariances
+        self.precisions_cholesky_ = compute_precision_cholesky(
+            self.covariances_,
+            self._em_covariance_type,
+        )
 
 
     def _set_parameters(self, params):
-        (self.gm.weights_, self.gm.means_, self.gm.covariances_,
-         self.gm.precisions_cholesky_) = params
+        (
+            self.weights_,
+            self.means_,
+            self.covariances_,
+            self.precisions_cholesky_,
+        ) = params
 
-        # Attributes computation
-        _, n_features = self.gm.means_.shape
+        if self._em_covariance_type == "full":
+            self.precisions_ = np.empty(self.precisions_cholesky_.shape, dtype=complex)
 
-        if self.gm.covariance_type == 'full':
-            self.gm.precisions_ = np.empty(self.gm.precisions_cholesky_.shape, dtype=complex)
-            for k, prec_chol in enumerate(self.gm.precisions_cholesky_):
-                self.gm.precisions_[k] = np.dot(prec_chol, prec_chol.T.conj())
+            for k, prec_chol in enumerate(self.precisions_cholesky_):
+                self.precisions_[k] = prec_chol @ prec_chol.T.conj()
+
         else:
-            self.gm.precisions_ = np.abs(self.gm.precisions_cholesky_) ** 2
+            self.precisions_ = np.abs(self.precisions_cholesky_) ** 2
 
 
     def estimate_gaussian_parameters(self, X, resp, reg_covar, covariance_type):
@@ -646,7 +893,7 @@ class GaussianMixtureCplx:
         """
         nk = np.real(resp).sum(axis=0) + 10 * np.finfo(resp.dtype).eps
         means = np.dot(resp.T, X) / nk[:, np.newaxis]
-        if self.params['zero_mean']:
+        if self._zero_mean:
             means = np.zeros_like(means)
         covariances = {"full": self.estimate_gaussian_covariances_full,
                        "diag": self.estimate_gaussian_covariances_diag,
@@ -710,7 +957,10 @@ class GaussianMixtureCplx:
 
     def estimate_gaussian_covariances_inv(self, resp, X, nk, means, reg_covar):
         """Estimate the Topelitz-structured covariance matrices.
-        Method is used from T. A. Barton and D. R. Fuhrmann, "Covariance estimation for multidimensional data
+
+        Uses the EM-based inverse covariance update from:
+
+        T. A. Barton and D. R. Fuhrmann, "Covariance estimation for multidimensional data
         using the EM algorithm," Proceedings of 27th Asilomar Conference on Signals, Systems and Computers, 1993,
         pp. 203-207 vol.1.
 
@@ -733,15 +983,31 @@ class GaussianMixtureCplx:
         """
         n_components, n_features = means.shape
         covariances = np.empty((n_components, n_features, n_features), dtype=complex)
-        Cinv = np.linalg.pinv(self.gm.covariances_, hermitian=True)
+        covariance_inv = np.linalg.pinv(self.covariances_, hermitian=True)
+
         for k in range(n_components):
             diff = X - means[k]
             covariances[k] = np.dot(resp[:, k] * diff.T, diff.conj()) / nk[k]
-            Theta = np.real(self.F2 @ (Cinv[k] @ covariances[k] @ Cinv[k] - Cinv[k]) @ self.F2.conj().T)
-            self.gm.Sigma[k] = self.gm.Sigma[k] + np.diag(np.multiply(np.multiply(self.gm.Sigma[k], Theta), self.gm.Sigma[k]))
-            self.gm.Sigma[k][self.gm.Sigma[k] < reg_covar] = reg_covar
-            covariances[k] = np.multiply(self.F2.conj().T, self.gm.Sigma[k]) @ self.F2
-            covariances[k].flat[::n_features + 1] += reg_covar
+
+            theta = np.real(
+                self._F2
+                @ (
+                    covariance_inv[k]
+                    @ covariances[k]
+                    @ covariance_inv[k]
+                    - covariance_inv[k]
+                )
+                @ self._F2.conj().T
+            )
+
+            self._sigma[k] = self._sigma[k] + np.diag(
+                self._sigma[k] * theta * self._sigma[k]
+            )
+            self._sigma[k][self._sigma[k] < reg_covar] = reg_covar
+
+            covariances[k] = np.multiply(self._F2.conj().T, self._sigma[k]) @ self._F2
+            covariances[k].flat[:: n_features + 1] += reg_covar
+
         return covariances
 
     def estimate_gaussian_covariances_spherical(self, resp, X, nk, means, reg_covar):
