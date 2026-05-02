@@ -75,9 +75,9 @@ def test_single_component_real_valued_log_likelihood_matches_sklearn_transform(
     sklearn_model.fit(X)
 
     n_features = X.shape[1]
-    expected_complex_scores = (
-        2.0 * sklearn_model.score_samples(X) + n_features * np.log(2.0)
-    )
+    expected_complex_scores = 2.0 * sklearn_model.score_samples(
+        X
+    ) + n_features * np.log(2.0)
 
     assert np.allclose(
         model.score_samples(X),
