@@ -3,18 +3,19 @@
 # Modified by Thierry Guillemot <thierry.guillemot.work@gmail.com>
 # License: BSD 3 clause
 
-# Extension to the complex-valued case with (block-)Toeplitz and (block-)circulant covariances:
+# Extension to the complex-valued case with (block-)Toeplitz and
+# (block-)circulant covariances:
 # Author: Benedikt Fesl <benedikt.fesl@tum.de>
 # License: BSD 3 clause
+
+import warnings
 
 import numpy as np
 from scipy import linalg as scilinalg
 from scipy.special import logsumexp
-import warnings
-
 from sklearn import cluster
-from sklearn.exceptions import ConvergenceWarning
 from sklearn.base import BaseEstimator, ClusterMixin, DensityMixin
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.utils.validation import check_is_fitted
 
 from . import _utils as ut
@@ -42,26 +43,32 @@ def compute_precision_cholesky(covariances, covariance_type):
         "Fitting the mixture model failed because some components have "
         "ill-defined empirical covariance (for instance caused by singleton "
         "or collapsed samples). Try to decrease the number of components, "
-        "or increase reg_covar.")
+        "or increase reg_covar."
+    )
 
-    if covariance_type == 'full':
+    if covariance_type == "full":
         n_components, n_features, _ = covariances.shape
-        precisions_chol = np.empty((n_components, n_features, n_features), dtype=complex)
+        precisions_chol = np.empty(
+            (n_components, n_features, n_features), dtype=complex
+        )
         for k, covariance in enumerate(covariances):
             try:
                 cov_chol = scilinalg.cholesky(covariance, lower=True)
-            except scilinalg.LinAlgError:
-                raise ValueError(estimate_precision_error_message)
-            precisions_chol[k] = scilinalg.solve_triangular(cov_chol, np.eye(n_features), lower=True).T.conj()
+            except scilinalg.LinAlgError as exc:
+                raise ValueError(estimate_precision_error_message) from exc
+            precisions_chol[k] = scilinalg.solve_triangular(
+                cov_chol, np.eye(n_features), lower=True
+            ).T.conj()
     else:
         if np.any(np.less_equal(covariances, 0.0)):
             raise ValueError(estimate_precision_error_message)
-        precisions_chol = 1. / np.sqrt(covariances).conj()
+        precisions_chol = 1.0 / np.sqrt(covariances).conj()
     return precisions_chol
 
 
 def _compute_log_det_cholesky(matrix_chol, covariance_type, n_features):
     """Compute the log-det of the cholesky decomposition of matrices.
+
     Parameters
     ----------
     matrix_chol : array-like
@@ -73,6 +80,7 @@ def _compute_log_det_cholesky(matrix_chol, covariance_type, n_features):
     covariance_type : {'full', 'tied', 'diag', 'spherical'}
     n_features : int
         Number of features.
+
     Returns
     -------
     log_det_precision_chol : array-like of shape (n_components,)
@@ -88,7 +96,6 @@ def _compute_log_det_cholesky(matrix_chol, covariance_type, n_features):
     else:
         log_det_chol = n_features * (np.log(matrix_chol))
     return log_det_chol
-
 
 
 class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
@@ -147,9 +154,7 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
     def _validate_parameters(self, X):
         """Validate estimator hyperparameters against the input data."""
         if self.n_components < 1:
-            raise ValueError(
-                f"n_components must be >= 1, got {self.n_components}."
-            )
+            raise ValueError(f"n_components must be >= 1, got {self.n_components}.")
 
         if self.covariance_type not in self._valid_covariance_types:
             raise ValueError(
@@ -161,9 +166,7 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             raise ValueError(f"tol must be non-negative, got {self.tol}.")
 
         if self.reg_covar < 0:
-            raise ValueError(
-                f"reg_covar must be non-negative, got {self.reg_covar}."
-            )
+            raise ValueError(f"reg_covar must be non-negative, got {self.reg_covar}.")
 
         if self.max_iter < 1:
             raise ValueError(f"max_iter must be >= 1, got {self.max_iter}.")
@@ -230,7 +233,7 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             self.covariances_,
             self.precisions_cholesky_,
         )
-    
+
     def _effective_covariance_type(self):
         """Return the covariance type used for likelihood and precision evaluation."""
         if self._em_covariance_type == "inv-em":
@@ -272,13 +275,11 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         """Return a copy of the fitted mixture weights."""
         check_is_fitted(self)
         return self.weights_.copy()
-    
 
     def _fit_em(self, X, y=None):
         """Run the direct EM fit without covariance-structure preprocessing."""
         self.fit_predict(X, y=y)
         return self
-
 
     def fit(self, X, y=None):
         """Fit the complex-valued Gaussian mixture model.
@@ -349,10 +350,9 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             n_features = X.shape[1]
 
             self._em_covariance_type = "inv-em"
-            self._F2 = (
-                np.fft.fft(np.eye(2 * n_features, dtype=complex))[:, :n_features]
-                / np.sqrt(2 * n_features)
-            )
+            self._F2 = np.fft.fft(np.eye(2 * n_features, dtype=complex))[
+                :, :n_features
+            ] / np.sqrt(2 * n_features)
 
             self._fit_em(X)
             self._store_public_fit_attributes()
@@ -391,16 +391,14 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
 
         return self
 
-
     def _store_public_fit_attributes(self):
         """Store backward-compatible aliases for fitted complex parameters."""
         self.means_cplx = self.means_.copy()
         self.covs_cplx = self.covariances_.copy()
         self.chol = self.precisions_cholesky_.copy()
 
-
     def _convert_diagonal_fft_fit_to_full_covariance(self):
-        """Transform diagonal FFT-domain parameters to full circulant covariance form."""
+        """Transform diagonal FFT-domain parameters to full covariance form."""
         means_dft = self.means_.copy()
         covariances_dft = self.covariances_.copy()
 
@@ -428,7 +426,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
 
         self._em_covariance_type = "full"
         self._store_public_fit_attributes()
-
 
     def _convert_diagonal_fft2_fit_to_full_covariance(self, n_1, n_2):
         """Transform diagonal 2D FFT-domain parameters to full block-circulant form."""
@@ -476,13 +473,14 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         self._em_covariance_type = "full"
         self._store_public_fit_attributes()
 
-
     def sample(self, n_samples=1):
         """Generate random samples from the fitted Gaussian distribution.
+
         Parameters
         ----------
         n_samples : int, default=1
             Number of samples to generate.
+
         Returns
         -------
         X : array, shape (n_samples, n_features)
@@ -494,8 +492,8 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
 
         if n_samples < 1:
             raise ValueError(
-                "Invalid value for 'n_samples': %d. The sampling requires at "
-                "least one sample." % n_samples
+                f"Invalid value for 'n_samples': {n_samples}. The sampling requires "
+                "at least one sample."
             )
 
         rng = ut.check_random_state(self.random_state)
@@ -513,6 +511,7 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
                     self.means_cplx,
                     self.covs_cplx,
                     n_samples_comp,
+                    strict=True,
                 )
                 if sample > 0
             ]
@@ -527,14 +526,12 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         )
 
         return X, y
-    
 
     def predict(self, X):
         """Predict component labels for complex-valued input samples."""
         check_is_fitted(self)
         X = self._check_X(X, reset=False)
         return self._estimate_weighted_log_prob(X).argmax(axis=1)
-
 
     def predict_proba(self, X):
         """Predict posterior component probabilities for input samples."""
@@ -543,36 +540,32 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         _, log_resp = self._estimate_log_prob_resp(X)
         return np.exp(log_resp)
 
-
     def score_samples(self, X):
         """Compute per-sample log-likelihoods under the fitted model."""
         check_is_fitted(self)
         X = self._check_X(X, reset=False)
         return logsumexp(self._estimate_weighted_log_prob(X), axis=1)
 
-
     def score(self, X, y=None):
         """Compute the mean log-likelihood under the fitted model."""
         del y
         return self.score_samples(X).mean()
-    
 
     def predict_cplx(self, X):
         """Predict the labels for the data samples in X using trained model.
 
-                Parameters
-                ----------
-                X : array-like of shape (n_samples, n_features)
-                    List of n_features-dimensional data points. Each row
-                    corresponds to a single data point.
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            List of n_features-dimensional data points. Each row
+            corresponds to a single data point.
 
-                Returns
-                -------
-                labels : array, shape (n_samples,)
-                    Component labels.
-                """
+        Returns
+        -------
+        labels : array, shape (n_samples,)
+            Component labels.
+        """
         return self.predict(X)
-
 
     def predict_proba_cplx(self, X):
         """Predict posterior probability of each component given the data.
@@ -590,7 +583,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             the model given each sample.
         """
         return self.predict_proba(X)
-    
 
     def _estimate_weighted_log_prob(self, X):
         """Estimate the weighted log-probabilities, log P(X | Z) + log weights.
@@ -605,11 +597,9 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         """
         return self._estimate_log_prob(X) + self._estimate_log_weights()
 
-
     def _estimate_log_weights(self):
         """Estimate log mixture weights."""
         return np.log(self.weights_)
-
 
     def _estimate_log_prob(self, X):
         """Estimate component-wise log probabilities for input samples."""
@@ -620,9 +610,9 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             self._effective_covariance_type(),
         )
 
-
     def _estimate_log_gaussian_prob(self, X, means, precisions_chol, covariance_type):
         """Estimate the log Gaussian probability.
+
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
@@ -633,6 +623,7 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             'diag' : shape of (n_components, n_features)
             'spherical' : shape of (n_components,)
         covariance_type : {'full', 'tied', 'diag', 'spherical'}
+
         Returns
         -------
         log_prob : array, shape (n_samples, n_components)
@@ -643,32 +634,35 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         # corresponds to the negative half of the determinant of the full precision
         # matrix.
         # In short: det(precision_chol) = - det(precision) / 2
-        log_det = np.real(_compute_log_det_cholesky(precisions_chol, covariance_type, n_features))
+        log_det = np.real(
+            _compute_log_det_cholesky(precisions_chol, covariance_type, n_features)
+        )
 
         if covariance_type == "full":
             log_prob = np.empty((n_samples, n_components))
-            for k, (mu, prec_chol) in enumerate(zip(means, precisions_chol)):
+            for k, (mu, prec_chol) in enumerate(
+                zip(means, precisions_chol, strict=True)
+            ):
                 y = np.dot(X, prec_chol.conj()) - np.dot(mu, prec_chol.conj())
-                log_prob[:, k] = np.sum(np.abs(y)**2, axis=1)
+                log_prob[:, k] = np.sum(np.abs(y) ** 2, axis=1)
 
         elif covariance_type == "diag":
             precisions = np.abs(precisions_chol) ** 2
             log_prob = (
-                    np.sum((np.abs(means) ** 2 * precisions), 1)
-                    - 2.0 * np.real(np.dot(X, (means.conj() * precisions).T))
-                    + np.dot(np.abs(X) ** 2, precisions.T)
+                np.sum((np.abs(means) ** 2 * precisions), 1)
+                - 2.0 * np.real(np.dot(X, (means.conj() * precisions).T))
+                + np.dot(np.abs(X) ** 2, precisions.T)
             )
         elif covariance_type == "spherical":
             precisions = np.abs(precisions_chol) ** 2
             log_prob = (
-                    np.sum(np.abs(means) ** 2, 1) * precisions
-                    - 2 * np.real(np.dot(X, means.conj().T) * precisions)
-                    + np.outer((X.conj() * X).sum(axis=1), precisions)
+                np.sum(np.abs(means) ** 2, 1) * precisions
+                - 2 * np.real(np.dot(X, means.conj().T) * precisions)
+                + np.outer((X.conj() * X).sum(axis=1), precisions)
             )
         # Since we are using the precision of the Cholesky decomposition,
         # `- log_det_precision` becomes `+ 2 * log_det_precision_chol`
-        return -(n_features * np.log(np.pi) + np.real(log_prob)) + 2*log_det
-
+        return -(n_features * np.log(np.pi) + np.real(log_prob)) + 2 * log_det
 
     def fit_cplx(self, X, y=None):
         """Fit the direct complex-valued EM model.
@@ -678,7 +672,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         """
         self._fit_em(X, y=y)
         return self
-
 
     def fit_predict(self, X, y=None):
         """Estimate model parameters using X and predict the labels for X.
@@ -754,6 +747,7 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
                 "Initialization did not converge. Try different init parameters, "
                 "or increase max_iter, tol, or check for degenerate data.",
                 ConvergenceWarning,
+                stacklevel=2,
             )
 
         if best_params is None:
@@ -766,7 +760,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         _, log_resp = self._e_step(X)
         return log_resp.argmax(axis=1)
 
-
     def _initialize_parameters(self, X, random_state):
         """Initialize responsibilities using the configured initialization strategy."""
         n_samples, _ = X.shape
@@ -774,11 +767,15 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         if self.init_params == "kmeans":
             resp = np.zeros((n_samples, self.n_components))
             X_real = ut.cplx2real(X, axis=1)
-            labels = cluster.KMeans(
-                n_clusters=self.n_components,
-                n_init=1,
-                random_state=random_state,
-            ).fit(X_real).labels_
+            labels = (
+                cluster.KMeans(
+                    n_clusters=self.n_components,
+                    n_init=1,
+                    random_state=random_state,
+                )
+                .fit(X_real)
+                .labels_
+            )
             resp[np.arange(n_samples), labels] = 1
 
         elif self.init_params == "random":
@@ -786,13 +783,14 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             resp /= resp.sum(axis=1)[:, np.newaxis]
 
         else:
-            raise ValueError(f"Unimplemented initialization method {self.init_params!r}.")
+            raise ValueError(
+                f"Unimplemented initialization method {self.init_params!r}."
+            )
 
         self._initialize(X, resp)
 
-
     def _initialize(self, X, resp):
-        """Initialization of the Gaussian mixture parameters.
+        """Initialize the Gaussian mixture parameters.
 
         Parameters
         ----------
@@ -802,11 +800,15 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         """
         n_samples, _ = X.shape
 
+        init_covariance_type = (
+            "full" if self._em_covariance_type == "inv-em" else self._em_covariance_type
+        )
+
         weights, means, covariances = self.estimate_gaussian_parameters(
             X,
             resp,
             self.reg_covar,
-            self._em_covariance_type,
+            init_covariance_type,
         )
         weights /= n_samples
 
@@ -840,7 +842,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         else:
             self.precisions_cholesky_ = np.sqrt(self.precisions_init)
 
-
     def _e_step(self, X):
         """E step.
 
@@ -860,12 +861,10 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         log_prob_norm, log_resp = self._estimate_log_prob_resp(X)
         return np.mean(log_prob_norm), log_resp
 
-
     def _compute_lower_bound(self, log_resp, log_prob_norm):
         """Compute the EM lower bound from the mean log probability."""
         del log_resp  # kept for API similarity with sklearn's internal implementation
         return log_prob_norm
-
 
     def _estimate_log_prob_resp(self, X):
         """Estimate log probabilities and responsibilities for each sample.
@@ -888,11 +887,10 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         """
         weighted_log_prob = self._estimate_weighted_log_prob(X)
         log_prob_norm = logsumexp(weighted_log_prob, axis=1)
-        with np.errstate(under='ignore'):
+        with np.errstate(under="ignore"):
             # ignore underflow
             log_resp = weighted_log_prob - log_prob_norm[:, np.newaxis]
         return log_prob_norm, log_resp
-
 
     def _m_step(self, X, log_resp):
         """M step.
@@ -922,7 +920,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             self._effective_covariance_type(),
         )
 
-
     def _set_parameters(self, params):
         (
             self.weights_,
@@ -939,7 +936,6 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
 
         else:
             self.precisions_ = np.abs(self.precisions_cholesky_) ** 2
-
 
     def estimate_gaussian_parameters(self, X, resp, reg_covar, covariance_type):
         """Estimate the Gaussian distribution parameters.
@@ -974,11 +970,12 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         means = np.dot(resp.T, X) / nk[:, np.newaxis]
         if self._zero_mean:
             means = np.zeros_like(means)
-        covariances = {"full": self.estimate_gaussian_covariances_full,
-                       "diag": self.estimate_gaussian_covariances_diag,
-                       "inv-em": self.estimate_gaussian_covariances_inv,
-                       "spherical": self.estimate_gaussian_covariances_spherical,
-                       }[covariance_type](resp, X, nk, means, reg_covar)
+        covariances = {
+            "full": self.estimate_gaussian_covariances_full,
+            "diag": self.estimate_gaussian_covariances_diag,
+            "inv-em": self.estimate_gaussian_covariances_inv,
+            "spherical": self.estimate_gaussian_covariances_spherical,
+        }[covariance_type](resp, X, nk, means, reg_covar)
         return nk, means, covariances
 
     def estimate_gaussian_covariances_full(self, resp, X, nk, means, reg_covar):
@@ -1006,7 +1003,7 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         for k in range(n_components):
             diff = X - means[k]
             covariances[k] = np.dot(resp[:, k] * diff.T, diff.conj()) / nk[k]
-            covariances[k].flat[::n_features + 1] += reg_covar
+            covariances[k].flat[:: n_features + 1] += reg_covar
         return covariances
 
     def estimate_gaussian_covariances_diag(self, resp, X, nk, means, reg_covar):
@@ -1032,16 +1029,19 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         avg_X2 = np.dot(resp.T, X * X.conj()) / nk[:, np.newaxis]
         avg_means2 = np.abs(means) ** 2
         avg_X_means = means.conj() * np.dot(resp.T, X) / nk[:, np.newaxis]
-        return np.real(avg_X2 - 2.0 * np.real(avg_X_means) + avg_means2) + reg_covar + 0j
+        return (
+            np.real(avg_X2 - 2.0 * np.real(avg_X_means) + avg_means2) + reg_covar + 0j
+        )
 
     def estimate_gaussian_covariances_inv(self, resp, X, nk, means, reg_covar):
         """Estimate the Topelitz-structured covariance matrices.
 
         Uses the EM-based inverse covariance update from:
 
-        T. A. Barton and D. R. Fuhrmann, "Covariance estimation for multidimensional data
-        using the EM algorithm," Proceedings of 27th Asilomar Conference on Signals, Systems and Computers, 1993,
-        pp. 203-207 vol.1.
+        T. A. Barton and D. R. Fuhrmann, "Covariance estimation for
+        multidimensional data using the EM algorithm," Proceedings of the 27th
+        Asilomar Conference on Signals, Systems and Computers, 1993,
+        pp. 203-207 vol. 1.
 
         Parameters
         ----------
@@ -1071,9 +1071,7 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
             theta = np.real(
                 self._F2
                 @ (
-                    covariance_inv[k]
-                    @ covariances[k]
-                    @ covariance_inv[k]
+                    covariance_inv[k] @ covariances[k] @ covariance_inv[k]
                     - covariance_inv[k]
                 )
                 @ self._F2.conj().T
@@ -1109,4 +1107,11 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         covariances : array, shape (n_components, n_features, n_features)
             The covariance matrix of the current components.
         """
-        return np.real(self.estimate_gaussian_covariances_diag(resp, X, nk, means, reg_covar).mean(1)) + 0j
+        return (
+            np.real(
+                self.estimate_gaussian_covariances_diag(
+                    resp, X, nk, means, reg_covar
+                ).mean(1)
+            )
+            + 0j
+        )

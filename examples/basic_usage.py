@@ -1,11 +1,13 @@
 # Author: Benedikt Fesl <benedikt.fesl@tum.de>
 # License: BSD 3 clause
 
-from cplx_gmm import GaussianMixtureCplx
 import time
+
 import numpy as np
 
-if __name__ == '__main__':
+from cplx_gmm import GaussianMixtureCplx
+
+if __name__ == "__main__":
     """
     Test script for the complex-valued GMM implementation.
     """
@@ -14,16 +16,25 @@ if __name__ == '__main__':
     n_train = 1_000
     n_val = 100
     n_dim = 32
-    # covariance types: {'full', 'diag', 'spherical', (block-)circulant, (block-)toeplitz}
-    covariance_type = 'full'
-    # Dimensions of matrix blocks (only necessary for block-circulant and block-toeplitz), e.g., 4 blocks of size 8x8
+    # Supported covariance types include full, diag, spherical, circulant,
+    # block-circulant, toeplitz, and block-toeplitz.
+    covariance_type = "full"
+
+    # Matrix block dimensions for block-circulant and block-toeplitz.
+    # Example: 4 blocks of size 8.
     blocks = (4, 8)
+
     # Enforce zero mean of all GMM components
     zero_mean = False
 
     # Create toy data
-    h_train = (rng.standard_normal((n_train, n_dim)) + 1j * rng.standard_normal((n_train, n_dim))) / np.sqrt(2)
-    h_val = (rng.standard_normal((n_val, n_dim)) + 1j * rng.standard_normal((n_val, n_dim))) / np.sqrt(2)
+    h_train = (
+        rng.standard_normal((n_train, n_dim))
+        + 1j * rng.standard_normal((n_train, n_dim))
+    ) / np.sqrt(2)
+    h_val = (
+        rng.standard_normal((n_val, n_dim)) + 1j * rng.standard_normal((n_val, n_dim))
+    ) / np.sqrt(2)
 
     #
     # GMM training
@@ -38,13 +49,13 @@ if __name__ == '__main__':
     )
     gm_full.fit(h_train, blocks=blocks, zero_mean=zero_mean)
     toc = time.time()
-    print(f'Training done: {toc - tic} sec.')
+    print(f"Training done: {toc - tic} sec.")
 
     # Covariances & means & weights
     means = gm_full.means
     covs = gm_full.covariances
     weights = gm_full.weights
-    print(f'Sum of weights: {np.real(np.sum(weights))}')
+    print(f"Sum of weights: {np.real(np.sum(weights))}")
 
     #
     # Responsibility evaluation
@@ -60,4 +71,4 @@ if __name__ == '__main__':
     samples, comps = gm_full.sample(n_samples=100)
     # check generated samples by computing max responsibility
     proba_max_samples = gm_full.predict_cplx(samples)
-    print('Test completed.')
+    print("Test completed.")

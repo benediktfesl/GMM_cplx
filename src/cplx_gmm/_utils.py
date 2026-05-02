@@ -1,7 +1,9 @@
 import numpy as np
 
+
 def check_random_state(seed):
     import numbers
+
     """Turn seed into a np.random.RandomState instance
 
     Parameters
@@ -18,21 +20,20 @@ def check_random_state(seed):
         return np.random.RandomState(seed)
     if isinstance(seed, np.random.RandomState):
         return seed
-    raise ValueError('%r cannot be used to seed a numpy.random.RandomState'
-                     ' instance' % seed)
+    raise ValueError(
+        f"{seed!r} cannot be used to seed a numpy.random.RandomState instance"
+    )
 
 
 def cplx2real(vec: np.ndarray, axis=0):
-    """
-    Concatenate real and imaginary parts of vec along axis=axis.
-    """
+    """Concatenate real and imaginary parts of vec along axis=axis."""
     return np.concatenate([vec.real, vec.imag], axis=axis)
 
 
 def multivariate_normal_cplx(mean, covariance, n_samples, covariance_type):
-    if covariance_type == 'diag':
+    if covariance_type == "diag":
         cov_sqrt = np.diag(np.sqrt(covariance))
-    elif covariance_type == 'spherical':
+    elif covariance_type == "spherical":
         cov_sqrt = np.sqrt(covariance) * np.eye(mean.shape[0])
     else:
         cov_sqrt = np.linalg.cholesky(covariance)
@@ -42,5 +43,8 @@ def multivariate_normal_cplx(mean, covariance, n_samples, covariance_type):
     return h
 
 
-def crandn(*arg, rng=np.random.default_rng()):
+def crandn(*arg, rng=None):
+    """Generate circularly symmetric complex standard normal samples."""
+    if rng is None:
+        rng = np.random.default_rng()
     return np.sqrt(0.5) * (rng.standard_normal(arg) + 1j * rng.standard_normal(arg))
