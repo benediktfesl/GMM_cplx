@@ -118,6 +118,17 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
                 f"n_samples = {X.shape[0]}."
             )
 
+        if self.warm_start and self.covariance_type in {
+            "circulant",
+            "block-circulant",
+            "toeplitz",
+            "block-toeplitz",
+        }:
+            raise ValueError(
+                "warm_start=True is currently only supported for covariance_type "
+                "'full', 'diag', and 'spherical'."
+            )
+
     def _check_X(self, X, reset):
         """Convert input data to a valid 2D complex-valued array."""
         X = np.asarray(X)
@@ -179,6 +190,18 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         return self.covariances_.copy()
 
     @property
+    def covariances_fft(self):
+        """Return a copy of the fitted FFT-domain covariance parameters."""
+        check_is_fitted(self, attributes=["covariances_fft_"])
+        return self.covariances_fft_.copy()
+
+    @property
+    def covariances_fft2(self):
+        """Return a copy of the fitted 2D FFT-domain covariance parameters."""
+        check_is_fitted(self, attributes=["covariances_fft2_"])
+        return self.covariances_fft2_.copy()
+
+    @property
     def converged(self):
         """Return whether the EM algorithm converged during fitting."""
         check_is_fitted(self)
@@ -189,6 +212,18 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         """Return a copy of the fitted component means."""
         check_is_fitted(self)
         return self.means_.copy()
+
+    @property
+    def means_fft(self):
+        """Return a copy of the fitted FFT-domain component means."""
+        check_is_fitted(self, attributes=["means_fft_"])
+        return self.means_fft_.copy()
+
+    @property
+    def means_fft2(self):
+        """Return a copy of the fitted 2D FFT-domain component means."""
+        check_is_fitted(self, attributes=["means_fft2_"])
+        return self.means_fft2_.copy()
 
     @property
     def precisions(self):
@@ -208,9 +243,20 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         check_is_fitted(self)
         return self.weights_.copy()
 
+    def _clear_fourier_domain_parameters(self):
+        """Remove fitted Fourier-domain parameters from previous fits."""
+        for attribute in (
+            "means_fft_",
+            "covariances_fft_",
+            "means_fft2_",
+            "covariances_fft2_",
+        ):
+            if hasattr(self, attribute):
+                delattr(self, attribute)
+
     def _fit_em(self, X, y=None):
         """Run the direct EM fit without covariance-structure preprocessing."""
-        self.fit_predict(X, y=y)
+        self._fit_predict_em(X, y=y)
         return self
 
     def fit(self, X, y=None):
@@ -235,6 +281,7 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         self._validate_parameters(X)
 
         requested_covariance_type = self.covariance_type
+        self._clear_fourier_domain_parameters()
 
         self._em_covariance_type = requested_covariance_type
         self._zero_mean = self.zero_mean
@@ -320,11 +367,42 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
 
         return self
 
+    def fit_predict(self, X, y=None):
+        """Estimate model parameters using X and predict the labels for X.
+
+        The method fits the model n_init times and sets the parameters with
+        which the model has the largest likelihood or lower bound. Within each
+        trial, the method iterates between E-step and M-step for `max_iter`
+        times until the change of likelihood or lower bound is less than
+        `tol`, otherwise, a :class:`~sklearn.exceptions.ConvergenceWarning` is
+        raised. After fitting, it predicts the most probable label for the
+        input data points.
+
+        .. versionadded:: 0.20
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            List of n_features-dimensional data points. Each row
+            corresponds to a single data point.
+
+        Returns
+        -------
+        labels : array, shape (n_samples,)
+            Component labels.
+        """
+        del y
+        self.fit(X)
+        return self.predict(X)
+
     def _convert_diagonal_fft_fit_to_full_covariance(self):
         """Transform diagonal FFT-domain parameters to full covariance form."""
+        self.means_fft_ = self.means_.copy()
+        self.covariances_fft_ = self.covariances_.copy()
+
         self.means_, self.covariances_ = diagonal_fft_parameters_to_full_covariance(
-            self.means_,
-            self.covariances_,
+            self.means_fft_,
+            self.covariances_fft_,
         )
 
         self.precisions_cholesky_ = compute_precision_cholesky(
@@ -340,9 +418,12 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
 
     def _convert_diagonal_fft2_fit_to_full_covariance(self, n_1, n_2):
         """Transform diagonal 2D FFT-domain parameters to full block-circulant form."""
+        self.means_fft2_ = self.means_.copy()
+        self.covariances_fft2_ = self.covariances_.copy()
+
         self.means_, self.covariances_ = diagonal_fft2_parameters_to_full_covariance(
-            self.means_,
-            self.covariances_,
+            self.means_fft2_,
+            self.covariances_fft2_,
             n_1,
             n_2,
         )
@@ -516,29 +597,12 @@ class GaussianMixtureCplx(BaseEstimator, ClusterMixin, DensityMixin):
         # `- log_det_precision` becomes `+ 2 * log_det_precision_chol`
         return -(n_features * np.log(np.pi) + np.real(log_prob)) + 2 * log_det
 
-    def fit_predict(self, X, y=None):
-        """Estimate model parameters using X and predict the labels for X.
+    def _fit_predict_em(self, X, y=None):
+        """Run the raw EM loop and return component labels.
 
-        The method fits the model n_init times and sets the parameters with
-        which the model has the largest likelihood or lower bound. Within each
-        trial, the method iterates between E-step and M-step for `max_iter`
-        times until the change of likelihood or lower bound is less than
-        `tol`, otherwise, a :class:`~sklearn.exceptions.ConvergenceWarning` is
-        raised. After fitting, it predicts the most probable label for the
-        input data points.
-
-        .. versionadded:: 0.20
-
-        Parameters
-        ----------
-        X : array-like of shape (n_samples, n_features)
-            List of n_features-dimensional data points. Each row
-            corresponds to a single data point.
-
-        Returns
-        -------
-        labels : array, shape (n_samples,)
-            Component labels.
+        This internal method assumes that covariance-structure preprocessing has
+        already been handled by ``fit``. Public callers should use ``fit`` or
+        ``fit_predict``.
         """
         del y  # unused, kept for sklearn API compatibility
 
