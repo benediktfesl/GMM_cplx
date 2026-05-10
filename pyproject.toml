@@ -9,11 +9,11 @@ description = "Complex-valued Gaussian mixture models with a scikit-learn-like A
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.23",
     "scipy>=1.9",
-    "scikit-learn>=1.2",
+    "scikit-learn>=1.3",
 ]
 keywords = [
     "complex-valued",
